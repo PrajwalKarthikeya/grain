@@ -1,0 +1,663 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="A minimal rice cooker timer. Cups in, countdown out.">
+<title>grain — rice timer</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍚</text></svg>">
+<script>
+(function(){
+  var t = null;
+  try { t = localStorage.getItem("grain-theme"); } catch(e){}
+  if(!t) t = window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+  document.documentElement.dataset.theme = t;
+})();
+</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,450;9..144,550&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ring-track: rgba(128,128,128,.18);
+    --card: color-mix(in srgb, var(--fg) 4%, transparent);
+    --line: color-mix(in srgb, var(--fg) 12%, transparent);
+    --line-strong: color-mix(in srgb, var(--fg) 22%, transparent);
+  }
+  [data-theme="dark"]{
+    --bg:#0b0b0f;
+    --fg:#ece7de;
+    --muted:#96908a;
+    --accent:#f2b64e;
+    --accent-soft:#f7cd85;
+    --accent-ink:#231703;
+    --glow1:rgba(242,182,78,.16);
+    --glow2:rgba(255,120,80,.09);
+    --shadow:0 30px 80px -20px rgba(0,0,0,.7);
+    --bowl:linear-gradient(160deg,#3a3632,#211f1d);
+    --rice:#f4efe6;
+  }
+  [data-theme="light"]{
+    --bg:#f7f2ea;
+    --fg:#201b16;
+    --muted:#877f74;
+    --accent:#c07f16;
+    --accent-soft:#e0a83f;
+    --accent-ink:#fffaf0;
+    --glow1:rgba(224,168,63,.28);
+    --glow2:rgba(240,140,90,.16);
+    --shadow:0 30px 70px -25px rgba(90,60,20,.35);
+    --bowl:linear-gradient(160deg,#ffffff,#efe6d8);
+    --rice:#fbf7ef;
+    color-scheme:light;
+  }
+  [data-theme="dark"]{ color-scheme:dark; }
+
+  *{ box-sizing:border-box; margin:0; padding:0; }
+  html,body{ height:100%; }
+  body{
+    font-family:"Inter",system-ui,-apple-system,"Segoe UI",sans-serif;
+    background:var(--bg);
+    color:var(--fg);
+    display:grid;
+    place-items:center;
+    min-height:100dvh;
+    overflow-x:hidden;
+    -webkit-font-smoothing:antialiased;
+    transition:background .5s ease,color .5s ease;
+  }
+  ::selection{ background:var(--accent); color:var(--accent-ink); }
+
+  .glow{
+    position:fixed; border-radius:50%;
+    filter:blur(90px); pointer-events:none; z-index:0;
+  }
+  .glow.g1{ width:55vmax;height:55vmax; left:-15vmax; top:-20vmax; background:var(--glow1); animation:drift 26s ease-in-out infinite alternate; }
+  .glow.g2{ width:45vmax;height:45vmax; right:-12vmax; bottom:-18vmax; background:var(--glow2); animation:drift 32s ease-in-out infinite alternate-reverse; }
+  @keyframes drift{ from{ transform:translate(0,0) scale(1);} to{ transform:translate(6vmax,4vmax) scale(1.15);} }
+
+  .noise{
+    position:fixed; inset:0; z-index:1; pointer-events:none; opacity:.05; mix-blend-mode:overlay;
+    background-image:url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="140" height="140"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2"/></filter><rect width="100%" height="100%" filter="url(%23n)"/></svg>');
+  }
+
+  .page{
+    position:relative; z-index:2;
+    width:min(440px,calc(100vw - 32px));
+    padding:clamp(20px,4vh,48px) 0 32px;
+    display:flex; flex-direction:column; gap:18px;
+  }
+
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .brand{
+    font-family:"Fraunces",Georgia,serif;
+    font-weight:550; font-size:1.35rem; letter-spacing:-.02em;
+    display:flex; align-items:center; gap:.5rem;
+  }
+  .brand .dot{ width:9px;height:9px;border-radius:50%;background:var(--accent); box-shadow:0 0 14px var(--accent); }
+  .icon-btn{
+    width:42px;height:42px; border-radius:14px;
+    display:grid; place-items:center;
+    background:transparent; color:var(--muted);
+    border:1px solid var(--line);
+    cursor:pointer; transition:all .25s ease;
+  }
+  .icon-btn:hover{ color:var(--fg); border-color:var(--line-strong); transform:translateY(-1px); }
+  [data-theme="dark"] .sun{ display:none; }
+  [data-theme="light"] .moon{ display:none; }
+
+  .card{
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:28px;
+    box-shadow:var(--shadow);
+    backdrop-filter:blur(14px);
+    padding:clamp(26px,5vw,38px);
+    position:relative;
+    transition:background .5s ease,border-color .5s ease;
+  }
+
+  .bowl-scene{ display:flex; flex-direction:column; align-items:center; margin-bottom:6px; }
+  .steam{ display:flex; gap:10px; height:44px; align-items:flex-end; margin-bottom:4px; visibility:hidden; }
+  .steam span{
+    width:5px; height:26px; border-radius:99px;
+    background:linear-gradient(to top,var(--accent-soft),transparent);
+    opacity:0; transform-origin:bottom center;
+  }
+  .running .steam, .done-state .steam{ visibility:visible; }
+  .running .steam span{ animation:rise 2.4s ease-in-out infinite; }
+  .steam span:nth-child(2){ height:34px; animation-delay:.5s !important; }
+  .steam span:nth-child(3){ height:22px; animation-delay:1.1s !important; }
+  @keyframes rise{
+    0%{ opacity:0; transform:translateY(8px) scaleX(1) skewX(0deg);}
+    35%{ opacity:.85;}
+    100%{ opacity:0; transform:translateY(-26px) scaleX(.6) skewX(-8deg);}
+  }
+  .bowl{
+    width:104px; height:52px;
+    background:var(--bowl);
+    border:1px solid var(--line-strong);
+    border-radius:10px 10px 52px 52px;
+    position:relative;
+    transition:transform .3s ease;
+  }
+  .bowl::before{
+    content:""; position:absolute; left:50%; bottom:82%;
+    transform:translateX(-50%);
+    width:84px; height:26px;
+    background:radial-gradient(closest-side,var(--rice),color-mix(in srgb,var(--rice) 65%, transparent));
+    border-radius:50%;
+  }
+  .bowl::after{
+    content:""; position:absolute; left:50%; bottom:-11px; transform:translateX(-50%);
+    width:44px; height:9px; border-radius:99px;
+    background:var(--line-strong);
+  }
+  .done-state .bowl{ animation:bounce .9s cubic-bezier(.28,1.6,.4,1) infinite alternate; box-shadow:0 0 40px var(--glow1); }
+  @keyframes bounce{ from{ transform:translateY(0);} to{ transform:translateY(-10px);} }
+
+  .done-state .steam span{
+    animation-duration:.8s;
+    background:linear-gradient(to top,var(--accent),transparent);
+    box-shadow:0 0 12px var(--glow1);
+  }
+
+  .burst{
+    position:absolute; left:50%; bottom:54px;
+    width:0; height:0; pointer-events:none;
+  }
+  .burst i{
+    position:absolute; left:var(--x); bottom:0;
+    width:var(--s); height:var(--s); border-radius:50%;
+    background:radial-gradient(circle at 35% 35%, var(--rice), var(--accent-soft) 60%, transparent);
+    filter:blur(3px); opacity:0;
+  }
+  .done-state .burst i{ animation:blast var(--t) ease-out infinite; animation-delay:var(--d); }
+  .burst i:nth-child(1){ --x:-42px; --s:16px; --dx:-30px; --dy:-110px; --t:1.7s;  --d:0s; }
+  .burst i:nth-child(2){ --x:-24px; --s:22px; --dx:-12px; --dy:-140px; --t:1.4s;  --d:.25s; }
+  .burst i:nth-child(3){ --x:-8px;  --s:26px; --dx:4px;   --dy:-160px; --t:1.8s;  --d:.1s; }
+  .burst i:nth-child(4){ --x:10px;  --s:20px; --dx:18px;  --dy:-130px; --t:1.3s;  --d:.4s; }
+  .burst i:nth-child(5){ --x:28px;  --s:16px; --dx:34px;  --dy:-105px; --t:1.6s;  --d:.55s; }
+  .burst i:nth-child(6){ --x:-56px; --s:12px; --dx:-48px; --dy:-80px;  --t:1.2s;  --d:.7s; }
+  .burst i:nth-child(7){ --x:44px;  --s:13px; --dx:52px;  --dy:-78px;  --t:1.45s; --d:.85s; }
+  .burst i:nth-child(8){ --x:2px;   --s:34px; --dx:0px;   --dy:-185px; --t:2.1s;  --d:.3s; }
+  @keyframes blast{
+    0%{ opacity:0; transform:translate(0,10%) scale(.3); }
+    12%{ opacity:.95; }
+    100%{ opacity:0; transform:translate(var(--dx), var(--dy)) scale(2.1); }
+  }
+
+  .shock{
+    position:absolute; left:50%; bottom:22px;
+    width:70px; height:70px; border-radius:50%;
+    border:2px solid var(--accent);
+    transform:translateX(-50%) scale(.2);
+    opacity:0; pointer-events:none;
+  }
+  .done-state .shock{ animation:shockwave 1s cubic-bezier(.16,.84,.36,1) .1s 2; }
+  @keyframes shockwave{
+    0%{ opacity:.7; transform:translateX(-50%) scale(.25); }
+    100%{ opacity:0; transform:translateX(-50%) scale(2.6); }
+  }
+
+  .bowl-scene.done-state{ animation:jolt .55s cubic-bezier(.36,.07,.19,.97) both; }
+  @keyframes jolt{
+    0%,100%{ transform:none; }
+    20%{ transform:translate(-3px,1px) rotate(-.6deg); }
+    40%{ transform:translate(3px,-2px) rotate(.5deg); }
+    60%{ transform:translate(-2px,2px) rotate(-.4deg); }
+    80%{ transform:translate(2px,0) rotate(.3deg); }
+  }
+
+  .panel{ display:none; animation:fadeUp .5s cubic-bezier(.2,.8,.3,1); }
+  .panel.active{ display:block; }
+  @keyframes fadeUp{ from{ opacity:0; transform:translateY(14px);} to{ opacity:1; transform:none;} }
+
+  h1{
+    font-family:"Fraunces",Georgia,serif;
+    font-weight:450; font-size:clamp(1.7rem,5vw,2.1rem);
+    letter-spacing:-.02em; line-height:1.15;
+    text-align:center; margin-bottom:6px;
+  }
+  .sub{ text-align:center; color:var(--muted); font-size:.92rem; margin-bottom:26px; }
+
+  .field{ margin-bottom:18px; }
+  .field label{
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size:.72rem; font-weight:600; text-transform:uppercase; letter-spacing:.14em;
+    color:var(--muted); margin-bottom:8px; padding:0 4px;
+  }
+  .stepper{
+    display:flex; align-items:stretch;
+    border:1px solid var(--line); border-radius:16px;
+    overflow:hidden; background:color-mix(in srgb,var(--fg) 3%,transparent);
+    transition:border-color .25s ease;
+  }
+  .stepper:focus-within{ border-color:var(--accent); }
+  .stepper button{
+    width:56px; border:none; background:transparent; color:var(--muted);
+    font-size:1.3rem; cursor:pointer; transition:all .2s ease;
+  }
+  .stepper button:hover{ color:var(--accent); background:color-mix(in srgb,var(--accent) 8%,transparent); }
+  .stepper input{
+    flex:1; min-width:0; border:none; outline:none; background:transparent;
+    color:var(--fg); font-family:inherit; font-size:1.5rem; font-weight:600;
+    text-align:center; padding:14px 0;
+    appearance:textfield; -moz-appearance:textfield;
+  }
+  .stepper input::-webkit-outer-spin-button,.stepper input::-webkit-inner-spin-button{ -webkit-appearance:none; }
+  .hint{
+    font-size:.8rem; color:var(--muted); margin-top:8px; padding:0 4px;
+    min-height:1.2em; transition:color .3s ease;
+  }
+  .hint.good{ color:var(--accent); }
+
+  .preview{
+    display:flex; justify-content:space-between; align-items:center;
+    font-size:.85rem; color:var(--muted);
+    border-top:1px dashed var(--line); margin-top:22px; padding:16px 4px 20px;
+  }
+  .preview strong{ color:var(--fg); font-variant-numeric:tabular-nums; font-weight:600; }
+
+  .btn-primary{
+    width:100%; padding:17px;
+    border:none; border-radius:16px; cursor:pointer;
+    background:var(--accent); color:var(--accent-ink);
+    font-family:inherit; font-size:1rem; font-weight:600; letter-spacing:.01em;
+    transition:transform .15s ease, box-shadow .25s ease, filter .2s ease;
+    box-shadow:0 12px 30px -8px color-mix(in srgb,var(--accent) 55%,transparent);
+  }
+  .btn-primary:hover{ filter:brightness(1.06); transform:translateY(-2px); }
+  .btn-primary:active{ transform:scale(.98); }
+  .btn-primary:disabled{ opacity:.45; cursor:not-allowed; transform:none; box-shadow:none; }
+
+  .btn-ghost{
+    width:100%; margin-top:12px; padding:14px;
+    border:1px solid var(--line); border-radius:16px; cursor:pointer;
+    background:transparent; color:var(--muted);
+    font-family:inherit; font-size:.9rem; font-weight:500;
+    transition:all .2s ease;
+  }
+  .btn-ghost:hover{ color:var(--fg); border-color:var(--line-strong); }
+
+  .timer-view{ display:flex; flex-direction:column; align-items:center; }
+  .phase-pill{
+    font-size:.68rem; font-weight:600; text-transform:uppercase; letter-spacing:.22em;
+    color:var(--accent); border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);
+    background:color-mix(in srgb,var(--accent) 9%,transparent);
+    padding:7px 16px; border-radius:99px; margin-bottom:22px;
+    transition:all .4s ease;
+  }
+  .ring-wrap{ position:relative; width:230px; height:230px; margin-bottom:20px; }
+  .ring-wrap svg{ transform:rotate(-90deg); width:100%; height:100%; }
+  .ring-track{ fill:none; stroke:var(--ring-track); stroke-width:7; }
+  .ring-bar{
+    fill:none; stroke:url(#ringGrad); stroke-width:7; stroke-linecap:round;
+    transition:stroke-dashoffset .35s linear;
+  }
+  .ring-center{
+    position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:4px;
+  }
+  .countdown{
+    font-size:3.4rem; font-weight:600; letter-spacing:-.03em;
+    font-variant-numeric:tabular-nums; line-height:1;
+  }
+  .eta{ font-size:.8rem; color:var(--muted); font-variant-numeric:tabular-nums; }
+
+  .meta-row{
+    display:flex; gap:8px; width:100%; margin-bottom:22px;
+  }
+  .chip{
+    flex:1; text-align:center; padding:12px 6px;
+    border:1px solid var(--line); border-radius:14px;
+  }
+  .chip b{ display:block; font-size:.95rem; font-weight:600; font-variant-numeric:tabular-nums; }
+  .chip span{ font-size:.62rem; text-transform:uppercase; letter-spacing:.12em; color:var(--muted); }
+
+  .done-title{
+    font-family:"Fraunces",Georgia,serif; font-weight:550;
+    font-size:2rem; letter-spacing:-.02em; text-align:center;
+  }
+  .done-sub{ text-align:center; color:var(--muted); font-size:.92rem; margin:8px 0 26px; }
+
+  footer{
+    text-align:center; color:var(--muted); font-size:.74rem; letter-spacing:.04em;
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{ animation-duration:.001s !important; transition-duration:.001s !important; }
+  }
+</style>
+</head>
+<body>
+
+<div class="glow g1"></div>
+<div class="glow g2"></div>
+<div class="noise"></div>
+
+<div class="page">
+  <header>
+    <div class="brand"><span class="dot"></span>grain</div>
+    <button class="icon-btn" id="themeBtn" type="button" aria-label="Toggle theme">
+      <svg class="moon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <svg class="sun" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    </button>
+  </header>
+
+  <main class="card">
+    <div class="bowl-scene" id="scene">
+      <div class="steam"><span></span><span></span><span></span></div>
+      <div class="bowl"></div>
+      <div class="burst"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="shock"></div>
+    </div>
+
+    <section class="panel active" id="setupPanel">
+      <h1>How much rice tonight?</h1>
+      <p class="sub">Set your cups. We'll count every second.</p>
+
+      <form id="setupForm">
+        <div class="field">
+          <label for="riceInput">Rice <span>cups</span></label>
+          <div class="stepper">
+            <button type="button" data-step="-0.5" data-target="riceInput" aria-label="Less rice">−</button>
+            <input id="riceInput" type="number" inputmode="decimal" value="1" min="0.5" max="10" step="0.5" required>
+            <button type="button" data-step="0.5" data-target="riceInput" aria-label="More rice">+</button>
+          </div>
+        </div>
+
+        <div class="field">
+          <label for="waterInput">Water <span>cups</span></label>
+          <div class="stepper">
+            <button type="button" data-step="-0.5" data-target="waterInput" aria-label="Less water">−</button>
+            <input id="waterInput" type="number" inputmode="decimal" value="1.5" min="0" max="20" step="0.5" required>
+            <button type="button" data-step="0.5" data-target="waterInput" aria-label="More water">+</button>
+          </div>
+          <p class="hint" id="ratioHint"></p>
+        </div>
+
+        <div class="preview">
+          <span>estimated</span>
+          <strong id="estimateText">—</strong>
+        </div>
+
+        <button type="submit" class="btn-primary" id="startBtn">Start cooking</button>
+      </form>
+    </section>
+
+    <section class="panel" id="timerPanel">
+      <div class="timer-view">
+        <div class="phase-pill" id="phasePill" aria-live="polite">Heating</div>
+
+        <div class="ring-wrap">
+          <svg viewBox="0 0 230 230" aria-hidden="true">
+            <defs>
+              <linearGradient id="ringGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#f2b64e"/>
+                <stop offset="100%" stop-color="#ff8a5c"/>
+              </linearGradient>
+            </defs>
+            <circle class="ring-track" cx="115" cy="115" r="102"/>
+            <circle class="ring-bar" id="ringBar" cx="115" cy="115" r="102"/>
+          </svg>
+          <div class="ring-center">
+            <div class="countdown" id="countdown">--:--</div>
+            <div class="eta" id="etaText"></div>
+          </div>
+        </div>
+
+        <div class="meta-row">
+          <div class="chip"><b id="chipRice">—</b><span>rice</span></div>
+          <div class="chip"><b id="chipWater">—</b><span>water</span></div>
+          <div class="chip"><b id="chipReady">—</b><span>ready at</span></div>
+        </div>
+
+        <button type="button" class="btn-ghost" id="cancelBtn">Stop timer</button>
+      </div>
+    </section>
+
+    <section class="panel" id="donePanel">
+      <h2 class="done-title">Rice is ready.</h2>
+      <p class="done-sub">Pressure released. Fluff it, give it a minute, enjoy.</p>
+      <button type="button" class="btn-primary" id="againBtn">Cook again</button>
+    </section>
+  </main>
+
+  <footer>white rice · absorption method · times are estimates</footer>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  const $ = (id) => document.getElementById(id);
+
+  const scene = $("scene");
+  const setupPanel = $("setupPanel");
+  const timerPanel = $("timerPanel");
+  const donePanel = $("donePanel");
+  const riceInput = $("riceInput");
+  const waterInput = $("waterInput");
+  const ratioHint = $("ratioHint");
+  const estimateText = $("estimateText");
+  const startBtn = $("startBtn");
+  const phasePill = $("phasePill");
+  const ringBar = $("ringBar");
+  const countdownEl = $("countdown");
+  const etaText = $("etaText");
+  const chipRice = $("chipRice");
+  const chipWater = $("chipWater");
+  const chipReady = $("chipReady");
+  const cancelBtn = $("cancelBtn");
+  const againBtn = $("againBtn");
+  const themeBtn = $("themeBtn");
+
+  const RING_C = 2 * Math.PI * 102;
+  ringBar.style.strokeDasharray = RING_C;
+  ringBar.style.strokeDashoffset = RING_C;
+
+  function clamp(v,min,max){ return Math.min(max, Math.max(min, v)); }
+
+  function fmtDuration(totalSec){
+    const m = Math.floor(totalSec / 60);
+    return m + " min";
+  }
+
+  function fmtClock(date){
+    return date.toLocaleTimeString([], { hour:"numeric", minute:"2-digit" });
+  }
+
+  function getSegments(cups){
+    return [
+      { name:"Heating",   sec:300 },
+      { name:"Absorbing", sec:Math.round(480 + cups * 150) },
+      { name:"Resting",   sec:600 }
+    ];
+  }
+
+  function ratioMessage(r){
+    if(r <= 0) return "";
+    if(r < 1.05) return "Very dry — this may come out crunchy.";
+    if(r < 1.25) return "A bit dry. Firm, chewy rice.";
+    if(r <= 1.75) return "Just right — classic fluffy texture.";
+    if(r <= 2.1) return "Slightly soft. Good for congee lovers.";
+    return "Quite soupy — closer to porridge.";
+  }
+
+  function updateSetupUI(){
+    const cups = parseFloat(riceInput.value) || 0;
+    const water = parseFloat(waterInput.value) || 0;
+
+    if(cups <= 0 || water <= 0){
+      ratioHint.classList.remove("good");
+      ratioHint.textContent = cups <= 0 ? "Add at least half a cup of rice." : "Add some water.";
+      startBtn.disabled = true;
+      estimateText.textContent = "—";
+      return;
+    }
+
+    const r = water / cups;
+    const good = r >= 1.25 && r <= 1.75;
+    ratioHint.textContent = `Ratio 1 : ${r.toFixed(2).replace(/\.?0+$/,"")} — ${ratioMessage(r)}`;
+    ratioHint.classList.toggle("good", good);
+
+    const total = getSegments(cups).reduce((a,s)=>a+s.sec,0);
+    const ready = new Date(Date.now() + total * 1000);
+    estimateText.textContent = `${fmtDuration(total)} · ready ${fmtClock(ready)}`;
+    startBtn.disabled = false;
+  }
+
+  document.querySelectorAll(".stepper button").forEach(btn=>{
+    btn.addEventListener("click", ()=>{
+      const input = $(btn.dataset.target);
+      const step = parseFloat(btn.dataset.step);
+      input.value = clamp((parseFloat(input.value) || 0) + step,
+                          parseFloat(input.min), parseFloat(input.max));
+      try{ localStorage.setItem("grain-"+input.id, input.value); }catch(e){}
+      updateSetupUI();
+    });
+  });
+
+  [riceInput, waterInput].forEach(input=>{
+    input.addEventListener("input", ()=>{
+      try{ localStorage.setItem("grain-"+input.id, input.value); }catch(e){}
+      updateSetupUI();
+    });
+  });
+
+  let timerId = null;
+  let endTime = 0;
+  let totalSec = 0;
+  let segments = [];
+
+  function show(panel, sceneClass){
+    [setupPanel, timerPanel, donePanel].forEach(p=>p.classList.remove("active"));
+    panel.classList.add("active");
+    scene.classList.remove("running","done-state");
+    if(sceneClass) scene.classList.add(sceneClass);
+  }
+
+  function startTimer(){
+    const cups = parseFloat(riceInput.value) || 0;
+    const water = parseFloat(waterInput.value) || 0;
+    if(cups <= 0 || water <= 0) return;
+
+    segments = getSegments(cups);
+    totalSec = segments.reduce((a,s)=>a+s.sec,0);
+    endTime = Date.now() + totalSec * 1000;
+
+    chipRice.textContent = cups + " cup" + (cups === 1 ? "" : "s");
+    chipWater.textContent = water + " cup" + (water === 1 ? "" : "s");
+    chipReady.textContent = fmtClock(new Date(endTime));
+
+    show(timerPanel, "running");
+    document.title = "cooking… · grain";
+    chime(true);
+
+    clearInterval(timerId);
+    updateTick();
+    timerId = setInterval(updateTick, 250);
+  }
+
+  function updateTick(){
+    const now = Date.now();
+    const remainMs = Math.max(0, endTime - now);
+    const elapsed = totalSec * 1000 - remainMs;
+    const remainSec = Math.ceil(remainMs / 1000);
+
+    const mm = String(Math.floor(remainSec / 60)).padStart(2,"0");
+    const ss = String(remainSec % 60).padStart(2,"0");
+    countdownEl.textContent = mm + ":" + ss;
+    document.title = "(" + mm + ":" + ss + ") grain";
+
+    const progress = clamp(elapsed / (totalSec * 1000), 0, 1);
+    ringBar.style.strokeDashoffset = RING_C * (1 - progress);
+
+    etaText.textContent = "ready " + fmtClock(new Date(endTime));
+
+    let acc = 0;
+    for(const seg of segments){
+      acc += seg.sec * 1000;
+      if(elapsed < acc){
+        if(phasePill.textContent !== seg.name) phasePill.textContent = seg.name;
+        break;
+      }
+    }
+
+    if(remainMs === 0){
+      clearInterval(timerId);
+      timerId = null;
+      finish();
+    }
+  }
+
+  function stopTimer(silent){
+    if(timerId){ clearInterval(timerId); timerId = null; }
+    document.title = "grain — rice timer";
+    if(!silent) show(setupPanel);
+    updateSetupUI();
+  }
+
+  function finish(){
+    show(donePanel, "done-state");
+    document.title = "🍚 ready! · grain";
+    chime(false);
+  }
+
+  let audioCtx = null;
+  function tone(freq, start, dur, gainVal){
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.type = "sine";
+    osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, audioCtx.currentTime + start);
+    gain.gain.exponentialRampToValueAtTime(gainVal, audioCtx.currentTime + start + 0.03);
+    gain.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + start + dur);
+    osc.connect(gain).connect(audioCtx.destination);
+    osc.start(audioCtx.currentTime + start);
+    osc.stop(audioCtx.currentTime + start + dur + 0.05);
+  }
+
+  function chime(isStart){
+    try{
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if(isStart){
+        tone(520, 0, 0.15, 0.08);
+      }else{
+        tone(523.25, 0, 0.35, 0.14);
+        tone(659.25, 0.18, 0.35, 0.14);
+        tone(783.99, 0.36, 0.6, 0.14);
+      }
+    }catch(e){}
+  }
+
+  $("setupForm").addEventListener("submit", (e)=>{
+    e.preventDefault();
+    startTimer();
+  });
+
+  cancelBtn.addEventListener("click", ()=>stopTimer());
+  againBtn.addEventListener("click", ()=>stopTimer());
+
+  themeBtn.addEventListener("click", ()=>{
+    const root = document.documentElement;
+    const next = root.dataset.theme === "dark" ? "light" : "dark";
+    root.dataset.theme = next;
+    try{ localStorage.setItem("grain-theme", next); }catch(e){}
+  });
+
+  ["riceInput","waterInput"].forEach(id=>{
+    try{
+      const saved = localStorage.getItem("grain-"+id);
+      if(saved !== null && saved !== "") $(id).value = saved;
+    }catch(e){}
+  });
+
+  updateSetupUI();
+})();
+</script>
+</body>
+</html>
