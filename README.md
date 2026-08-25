@@ -1,12 +1,12 @@
 <div align="center">
 
-# grain — a minimal rice timer
+# grain - a minimal rice timer
 
 **Cups in, countdown out.**
 
 [![Live Site](https://img.shields.io/badge/live-grain--bice.vercel.app-F2B64E?style=for-the-badge&logo=vercel&logoColor=white)](https://grain-bice.vercel.app/)
 
-A tiny, dark-mode-first web app that estimates your rice cook time and counts down every second until it's ready — then blows the steam whistle when it's done.
+A tiny, dark-mode-first web app that estimates your rice cook time and counts down every second until it's ready, then blows the steam whistle when it's done.
 
 </div>
 
@@ -14,7 +14,7 @@ A tiny, dark-mode-first web app that estimates your rice cook time and counts do
 
 1. Enter how many cups of **rice** you're cooking
 2. Enter how many cups of **water** you're pouring in
-3. Hit **Start cooking** — the timer tells you exactly when your rice will be ready
+3. Hit **Start cooking**: the timer tells you exactly when your rice will be ready
 
 That's it. No accounts, no ads, no cookies.
 
@@ -40,7 +40,7 @@ Times are estimates for white rice using the absorption method:
 
 | Ratio (rice : water) | Result                    |
 | -------------------- | ------------------------- |
-| 1 : 1.25 – 1.75      | Classic fluffy texture    |
+| 1 : 1.25 - 1.75      | Classic fluffy texture    |
 | Below that           | Firm and chewy            |
 | Above that           | Soft, bordering on congee |
 
@@ -48,7 +48,7 @@ Times are estimates for white rice using the absorption method:
 
 ## Run locally
 
-No build step, no dependencies — just open `index.html` in any browser.
+No build step, no dependencies: just open `index.html` in any browser.
 
 ## Deploy your own
 
